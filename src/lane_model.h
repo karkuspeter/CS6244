@@ -4,18 +4,22 @@
 #include "core/pomdp.h"
 #include "core/mdp.h"
 
+#define SPEED_COUNT 3   // no car; speed1; speed2
+#define LANE_COUNT 2    // starting in largest lane, want to reach lane 0
+#define CELL_COUNT 30
+
 /* =============================================================================
- * SimpleState class
+ * LaneState class
  * =============================================================================*/
 
-class SimpleState: public State {
+class LaneState: public State {
 public:
-	int rover_position; // positions are numbered 0, 1, 2 from left to right
-	int rock_status; // 1 is good, and 0 is bad
+	int cells[LANE_COUNT][CELL_COUNT][SPEED_COUNT]; // index by lane/pos/speed
+	int pos[2]; // position of robot, [lane, cell]
 
-	SimpleState();
-	SimpleState(int rover_position, int rock_status);
-	~SimpleState();
+	LaneState();
+	LaneState(int* cells, int* pos);
+	~LaneState();
 
 	string text() const;
 };
@@ -26,20 +30,27 @@ public:
 
 class LaneModel: public DSPOMDP {
 protected:
-	mutable MemoryPool<SimpleState> memory_pool_;
+	mutable MemoryPool<LaneState> memory_pool_;
 
-	vector<SimpleState*> states_;
+	vector<LaneState*> states_;
 
 	mutable vector<ValuedAction> mdp_policy_;
 
-public:
-	enum { // action
-		A_SAMPLE = 0, A_EAST = 1, A_WEST = 2, A_CHECK = 3
-	};
+//public:
+//	enum { // action
+//		A_SAMPLE = 0, A_EAST = 1, A_WEST = 2, A_CHECK = 3
+//	};
 
 public:
 	LaneModel();
 
+    /* Cell level functions */
+    double CellObsProbability(const LaneState& state, int *pos, int speed_obs);
+    double CellTransProbability(const LaneState& state, int *pos, int speed_new);
+    
+    int SampleCellObs(const LaneState& state, int *pos, double rand_num);
+    int SampleCellVal(const LaneState& state, int *pos, double rand_num);
+    
 	/* Returns total number of actions.*/
 	virtual int NumActions() const;
 

@@ -3,23 +3,24 @@
 using namespace std;
 
 /* =============================================================================
- * SimpleState class
+ * LaneState class
  * =============================================================================*/
 
-SimpleState::SimpleState() {
+LaneState::LaneState() {
 }
 
-SimpleState::SimpleState(int _rover_position, int _rock_status) {
-	rover_position = _rover_position;
-	rock_status = _rock_status;
+LaneState::LaneState(int* _cells, int* _pos) {
+    // Pos of our car and whole world
+    cells = _cells
+    pos = _pos
+    // TODO deep copy
 }
 
-SimpleState::~SimpleState() {
+LaneState::~LaneState() {
 }
 
-string SimpleState::text() const {
-	return "rover position = " + to_string(rover_position) + " rock_status = " +
-		to_string(rock_status);
+string LaneState::text() const {
+	return "robot position = " + to_string(pos[0]) + " " + to_string(pos[1]);
 }
 
 /* =============================================================================
@@ -29,12 +30,35 @@ string SimpleState::text() const {
 LaneModel::LaneModel() {
 }
 
+double LaneModel::CellObsProbability(const LaneState& state, int *pos, int speed_obs){
+    // compute the probability that we ovserve [speed_obs] at cell [pos] given the current state [state]
+    return 0;
+}
+
+double LaneModel::CellTransProbability(const LaneState& state, int *pos, int speed_new){
+    // compute the probability that the next cell value is [speed_new] at cell [pos] given the last state [state]
+    return 0;
+}
+
+int LaneModel::SampleCellObs(const LaneState& state, int *pos, double rand_num){
+    // sample from the possible observations at cell [pos] given the current state [state]
+    // use CellObsProbability
+    return 0;
+}
+
+int LaneModel::SampleCellVal(const LaneState& state, int *pos, double rand_num){
+    // sample from the possible spped values at cell [pos] given the last state [state]
+    // use CellTransProbability
+    return 0;
+}
+
+
 /* ======
  * Action
  * ======*/
 
 int LaneModel::NumActions() const {
-	return 4;
+	return SPEED_COUNT;
 }
 
 /* ==============================
@@ -43,10 +67,34 @@ int LaneModel::NumActions() const {
 
 bool LaneModel::Step(State& state, double rand_num, int action,
 	double& reward, OBS_TYPE& obs) const {
-	SimpleState& simple_state = static_cast<SimpleState&>(state);
-	int& rover_position = simple_state.rover_position;
-	int& rock_status = simple_state.rock_status;
+	
+	LaneState& lane_state = static_cast<LaneState&>(state);
 
+    // create enough number of random numbers
+    // one for each lane/cell for the transition
+    // one for each lane/cell for observation
+    double rand_t[LANE_COUNT][CELL_COUNT];
+    double rand_o[LANE_COUNT][CELL_COUNT];
+    
+    int next_cells[LANE_COUNT][CELL_COUNT];
+    int next_pos[2]
+    int obs_cells[LANE_COUNT][CELL_COUNT];
+    
+    for (int l = 0; l < LANE_COUNT; l++){
+        for(int c = 0; c < CELL_COUNT; c++){
+            next_cells[l][c] = SampleCellVal(lane_state, {l, c}, rand_t[l][c])
+        }
+    }
+    if action == 0 {
+        //switch lane
+        next_pos[0] = lane_state.pos[0] == 0 ? 0 : lane_speed.pos[0]-1
+        next_pos[1] = lane_state.pos[1]+1
+        // probably not good to allow lane switch action if at 0 lane 
+    } else {
+        next_pos[0] = lane_state.pos[0]
+        next_pos[1] = lane_state.pos[1]+action
+    }
+    
 	obs = 1; // default observation
 	if (rover_position == 0) {
 		if (action == A_SAMPLE) {
@@ -90,7 +138,7 @@ bool LaneModel::Step(State& state, double rand_num, int action,
 double LaneModel::ObsProb(OBS_TYPE obs, const State& state,
 	int action) const {
 	if (action == A_CHECK) {
-		const SimpleState& simple_state = static_cast<const SimpleState&>(state);
+		const LaneState& simple_state = static_cast<const LaneState&>(state);
 		int rover_position = simple_state.rover_position;
 		int rock_status = simple_state.rock_status;
 
@@ -105,19 +153,19 @@ double LaneModel::ObsProb(OBS_TYPE obs, const State& state,
 }
 
 State* LaneModel::CreateStartState(string type) const {
-	return new SimpleState(1, Random::RANDOM.NextInt(2));
+	return new LaneState(1, Random::RANDOM.NextInt(2));
 }
 
 Belief* LaneModel::InitialBelief(const State* start, string type) const {
 	if (type == "DEFAULT" || type == "PARTICLE") {
 		vector<State*> particles;
 
-		SimpleState* good_rock = static_cast<SimpleState*>(Allocate(-1, 0.5));
+		LaneState* good_rock = static_cast<LaneState*>(Allocate(-1, 0.5));
 		good_rock->rover_position = 1;
 		good_rock->rock_status = 1;
 		particles.push_back(good_rock);
 
-		SimpleState* bad_rock = static_cast<SimpleState*>(Allocate(-1, 0.5));
+		LaneState* bad_rock = static_cast<LaneState*>(Allocate(-1, 0.5));
 		bad_rock->rover_position = 1;
 		bad_rock->rock_status = 0;
 		particles.push_back(bad_rock);
@@ -157,7 +205,7 @@ public:
 	}
 
 	double Value(const State& s) const {
-		const SimpleState& state = static_cast<const SimpleState&>(s);
+		const LaneState& state = static_cast<const LaneState&>(s);
 		return upper_bounds_[state.rover_position][state.rock_status];
 	}
 };
@@ -212,21 +260,21 @@ ScenarioLowerBound* LaneModel::CreateScenarioLowerBound(string name,
  * =================*/
 
 State* LaneModel::Allocate(int state_id, double weight) const {
-	SimpleState* state = memory_pool_.Allocate();
+	LaneState* state = memory_pool_.Allocate();
 	state->state_id = state_id;
 	state->weight = weight;
 	return state;
 }
 
 State* LaneModel::Copy(const State* particle) const {
-	SimpleState* state = memory_pool_.Allocate();
-	*state = *static_cast<const SimpleState*>(particle);
+	LaneState* state = memory_pool_.Allocate();
+	*state = *static_cast<const LaneState*>(particle);
 	state->SetAllocated();
 	return state;
 }
 
 void LaneModel::Free(State* particle) const {
-	memory_pool_.Free(static_cast<SimpleState*>(particle));
+	memory_pool_.Free(static_cast<LaneState*>(particle));
 }
 
 int LaneModel::NumActiveParticles() const {
@@ -238,7 +286,7 @@ int LaneModel::NumActiveParticles() const {
  * =======*/
 
 void LaneModel::PrintState(const State& state, ostream& out) const {
-	const SimpleState& simple_state = static_cast<const SimpleState&>(state);
+	const LaneState& simple_state = static_cast<const LaneState&>(state);
 
 	out << "Rover = " << simple_state.rover_position << "; Rock = "
 		<< (simple_state.rock_status ? "GOOD" : "BAD") << endl;
@@ -257,7 +305,7 @@ void LaneModel::PrintBelief(const Belief& belief, ostream& out) const {
 	vector<double> pos_probs(3);
 	for (int i = 0; i < particles.size(); i++) {
 		State* particle = particles[i];
-		const SimpleState* state = static_cast<const SimpleState*>(particle);
+		const LaneState* state = static_cast<const LaneState*>(particle);
 		rock_status += state->rock_status * particle->weight;
 		pos_probs[state->rover_position] += particle->weight;
 	}
