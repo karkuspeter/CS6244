@@ -77,6 +77,7 @@ public:
 
 	/* Functions related to beliefs and starting states.*/
 	virtual double ObsProb(OBS_TYPE obs, const State& state, int action) const;
+	State* RandomState() const;
 	State* CreateStartState(string type = "DEFAULT") const;
 	Belief* InitialBelief(const State* start, string type = "DEFAULT") const;
 
@@ -84,12 +85,12 @@ public:
 	double GetMaxReward() const;
 	ValuedAction GetMinRewardAction() const;
 
-	/*
+
 	ScenarioUpperBound* CreateScenarioUpperBound(string name = "DEFAULT",
 		string particle_bound_name = "DEFAULT") const;
 	ScenarioLowerBound* CreateScenarioLowerBound(string name = "DEFAULT",
 		string particle_bound_name = "DEFAULT") const;
-	*/
+
 
 	/* Memory management.*/
 	State* Allocate(int state_id, double weight) const;

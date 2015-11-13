@@ -95,7 +95,7 @@ bool LaneModel::Step(State& state, double rand_num, int action,	double& reward, 
         lane_state.lane--;
         // shift all cars
         for (int i = 0; i < car_count; i++){
-        	if (cars[i].lane < lane_count -1)
+        	if (cars[i].lane < lane_count -1 && cars[i].cell != 0)
         		cars[i].lane++;
         	else {
         		cars[i] = PickRandomCarPos(random);
@@ -125,6 +125,13 @@ bool LaneModel::Step(State& state, double rand_num, int action,	double& reward, 
 				if (cars[i].speed > 1)
 					decision = -1;
 
+			//cars try to avoid collision with us, when not switching lanes
+			if (cars[i].lane == 1 && action != A_SWITCH)
+				if ( (cars[i].cell == cell_offset-1)
+						|| (cars[i].cell == cell_offset-2 && cars[i].speed > 1)
+						|| (cars[i].cell == cell_offset-3 && cars[i].speed > 2))
+					decision = -1;
+
 			cars[i].speed = cars[i].speed + decision;
 			cars[i].cell = cars[i].cell + cars[i].speed - lane_state.speed;
 			//disable if out of range
@@ -133,6 +140,8 @@ bool LaneModel::Step(State& state, double rand_num, int action,	double& reward, 
 				cars[i].lane = 0;
 				cars[i].speed = 0;
 			}
+
+
 		} else {
 			// car is disabled
 			rand_num = random.NextDouble();
@@ -154,6 +163,7 @@ bool LaneModel::Step(State& state, double rand_num, int action,	double& reward, 
     	terminate = true;
     }
     // check if colliding with other car
+    // TODO this allows to jump over a speed 1 car with speed 3
     for (int i = 0; i < car_count; i++){
     	if (cars[i].lane == 1 && cars[i].cell == cell_offset){
     		reward = R_COLLISION;
@@ -227,6 +237,30 @@ double LaneModel::ObsProb(OBS_TYPE obs, const State& state,	int action) const {
 }
 
 State* LaneModel::CreateStartState(string type) const {
+	if (type == "T1" || type == "DEFAULT"){
+		vector<CarPos> cars(car_count);
+
+		cars[0] = {0, 8, 2};
+		cars[1] = {1, 3, 2};
+		cars[2] = {0, 0, 0};
+		cars[3] = {0, 0, 0};
+
+		LaneState* startState = memory_pool_.Allocate();
+		startState->lane = starting_lane;
+		startState->speed = 2;
+		startState->cars = cars;
+
+		return startState;
+
+	} else if (type == "RANDOM"){
+		return RandomState();
+	} else {
+		cerr << "[LaneModel::CreateStartState] Unsupported start state type: " << type << endl;
+		exit(1);
+	}
+}
+
+State* LaneModel::RandomState() const {
 	vector<CarPos> cars(car_count);
 	for (int i=0; i<car_count; i++){
 		cars[i] = PickRandomCarPos(Random::RANDOM);
@@ -242,7 +276,7 @@ State* LaneModel::CreateStartState(string type) const {
 
 Belief* LaneModel::InitialBelief(const State* start, string type) const {
 	if (type == "DEFAULT" || type == "PARTICLE") {
-		int N = 200;
+		int N = 1000;
 		vector<State*> particles(N);
 
 		for (int i = 0; i < N; i++) {
@@ -262,14 +296,14 @@ Belief* LaneModel::InitialBelief(const State* start, string type) const {
  * ========================*/
 
 double LaneModel::GetMaxReward() const {
-	return R_SUCCESS + starting_lane*R_STEP;
+	return R_SUCCESS;
 }
 
 ValuedAction LaneModel::GetMinRewardAction() const {
-	return ValuedAction(A_SWITCH, R_COLLISION);
+	return ValuedAction(A_DEC, R_STEP);
 }
 
-/*class LaneModelParticleUpperBound: public ParticleUpperBound {
+class LaneModelParticleUpperBound: public ParticleUpperBound {
 protected:
 	// upper_bounds_[pos][status]:
 	//   max possible reward when rover_position = pos, and rock_status = status.
@@ -277,30 +311,25 @@ protected:
 
 public:
 	LaneModelParticleUpperBound(const DSPOMDP* model) {
-		upper_bounds_.resize(3);
-		upper_bounds_[0].push_back(Discount(1) * 10);
-		upper_bounds_[0].push_back(10 + Discount(2) * 10);
-		upper_bounds_[1].push_back(10);
-		upper_bounds_[1].push_back(Discount(1) * 10 + Discount(3) * 10);
-		if (upper_bounds_[1][1] < 10)
-			upper_bounds_[1][1] = 10;
-		upper_bounds_[2].push_back(0);
-		upper_bounds_[2].push_back(0);
 	}
 
 	double Value(const State& s) const {
 		const LaneState& state = static_cast<const LaneState&>(s);
-		return 10;
-		//return upper_bounds_[state.rover_position][state.rock_status];
+		int steps_to_go = state.lane-1;
+		double disc = Discount(steps_to_go);
+
+		// best possibility that we switch lanes, collecting sum(R_STEP*gamma^i) reward
+		// and then succeeding that gives R_SUCCES*gamma^i reward
+		return disc*R_SUCCESS + R_STEP*(1-disc)/(1-Discount());
 	}
 };
 
 ScenarioUpperBound* LaneModel::CreateScenarioUpperBound(string name,
 	string particle_bound_name) const {
 	ScenarioUpperBound* bound = NULL;
-	if (name == "TRIVIAL" || name == "DEFAULT") {
+	if (name == "TRIVIAL") {
 		bound = new TrivialParticleUpperBound(this);
-	} else if (name == "MAX") {
+	} else if (name == "MAX" || name == "DEFAULT") {
 		bound = new LaneModelParticleUpperBound(this);
 	} else {
 		cerr << "Unsupported base upper bound: " << name << endl;
@@ -309,25 +338,26 @@ ScenarioUpperBound* LaneModel::CreateScenarioUpperBound(string name,
 	return bound;
 }
 
-class LaneModelEastPolicy: public Policy {
+class LaneModelSwitchPolicy: public Policy {
 public:
-	LaneModelEastPolicy(const DSPOMDP* model, ParticleLowerBound* bound) :
+	LaneModelSwitchPolicy(const DSPOMDP* model, ParticleLowerBound* bound) :
 		Policy(model, bound) {
 	}
 
 	int Action(const vector<State*>& particles, RandomStreams& streams,
 		History& history) const {
-		return 1; // move east
+		return LaneModel::A_SWITCH; // switch
 	}
 };
+
 
 ScenarioLowerBound* LaneModel::CreateScenarioLowerBound(string name,
 	string particle_bound_name) const {
 	ScenarioLowerBound* bound = NULL;
 	if (name == "TRIVIAL" || name == "DEFAULT") {
 		bound = new TrivialParticleLowerBound(this);
-	} else if (name == "EAST") {
-		bound = new LaneModelEastPolicy(this,
+	} else if (name == "SWITCH") {
+		bound = new LaneModelSwitchPolicy(this,
 			CreateParticleLowerBound(particle_bound_name));
 	} else {
 		cerr << "Unsupported lower bound algorithm: " << name << endl;
@@ -335,7 +365,7 @@ ScenarioLowerBound* LaneModel::CreateScenarioLowerBound(string name,
 	}
 	return bound;
 }
-*/
+
 /* =================
  * Memory management
  * =================*/
@@ -378,13 +408,13 @@ void LaneModel::PrintCars(const vector<CarPos>& cars, ostream& out, int myspeed)
 		else lanes[cars[i].lane][cars[i].cell] = cars[i].speed;
 	}
 
-	out << "ME  " << "(" << lanes[0][0] << ")" << lanes[1][0];
+	out << "ME   " << "(" << lanes[0][0] << ")" << lanes[1][0];
 	for (int i = 1+2; i < cell_offset; i++)
 		out << "  ";
 	out << " " << myspeed << endl;
 
 	for (int j = lane_count-1; j >= 0; j--){
-		out << "LANE";
+		out << "LANE" << j;
 		for (int i = 1; i < cell_count; i++){
 			out << ((lanes[j][i] > -1) ? "|"+to_string(lanes[j][i]) : "| ");
 		}
