@@ -2,8 +2,18 @@
 
 #define OBS_CORR 0.8
 #define OBS_WRONG 0.2
-#define SPEED_SAME 0.8
-#define SPEED_CHANGE 0.2
+
+#define SPEED_KEEP 0.8
+#define SPEED_ACC 0.1
+#define SPEED_DEC 0.1
+
+#define P_ENABLE 0.3
+
+#define P_DISABLE 0.2
+
+#define R_COLLISION -500
+#define R_STEP -1
+#define R_SUCCESS 100
 
 using namespace std;
 
@@ -14,17 +24,18 @@ using namespace std;
 LaneState::LaneState() {
 }
 
-LaneState::LaneState(vector< vector<int> > _cells, RobotPos _pos){
+LaneState::LaneState(vector< CarPos > _cars, int _speed, int _lane){
     // Pos of our car and whole world
-    cells = _cells;
-    pos = _pos;
+    cars = _cars;
+    speed = _speed;
+    lane = _lane;
 }
 
 LaneState::~LaneState() {
 }
 
 string LaneState::text() const {
-	return "robot position = " + to_string(pos[0]) + " " + to_string(pos[1]) + " " + to_string(pos[2]);
+	return "lane " + to_string(lane) + " speed " + to_string(speed);
 }
 
 /* =============================================================================
@@ -32,79 +43,38 @@ string LaneState::text() const {
  * =============================================================================*/
 
 LaneModel::LaneModel() {
-    lane_count = LANE_COUNT;
-    cell_count = CELL_COUNT;
-    speed_count = SPEED_COUNT;
+    lane_count = 2;
+    cell_count = 16;
+    cell_offset = 8;
+    max_cell = 7;
+
+    speed_count = 3;
+    car_count = 4;
+
+    starting_lane = 5;
 }
 
-double LaneModel::CellObsProbability(const LaneState& state, int *pos, int speed_obs){
-    // compute the probability that we observe [speed_obs] at cell [pos] given the current state [state]
-    int val = state[pos[0]][pos[1]];
-    double Pcorr = 0.8, Pfalse=0.2;
-    if (val == 0 || speed_obs == 0) {
-    	return double(val == speed_obs);
-    } else if (val == 1){
-		return (val == speed_obs ? 1 : 0 );
-    }
-}
-
-double LaneModel::CellTransProbability(const LaneState& state, int *pos, int speed_new){
-    // compute the probability that the next cell value is [speed_new] at cell [pos] given the last state [state]
-    return 0;
-}
-
-int LaneModel::SampleCellObs(const LaneState& state, int *pos, double rand_num){
-    // sample from the possible observations at cell [pos] given the current state [state]
-    // use CellObsProbability
-	vector<double> probs;
-	double prob, normalizer = 0, sum = 0;
-
-	for (int i = 0; i < speed_count; i++){
-		prob = CellObsProbability(state, pos, i);
-		probs.push_back(prob);
-		normalizer += prob;
+CarPos LaneModel::PickRandomCarPos(Random random) const{
+	CarPos pos;
+	pos.lane = 0;
+	if (random.NextDouble() < P_DISABLE){
+		pos.speed = 0;
+		pos.cell = 0;
+	} else {
+		pos.speed = random.NextInt(1, speed_count);
+		pos.cell = random.NextInt(cell_offset-max_cell, cell_offset+max_cell);
 	}
-	for (int i = 0; i < speed_count; i++){
-		sum += probs[i]/normalizer;
-		if (rand_num < sum){
-			return i;
-		}
-	}
-
-    assert(0);
-    return -1;
+	return pos;
 }
-
-int LaneModel::SampleCellVal(const LaneState& state, int *pos, double rand_num){
-    // sample from the possible speed values at cell [pos] given the last state [state]
-    // use CellTransProbability
-	vector<double> probs;
-	double prob, normalizer = 0, sum = 0;
-
-	for (int i = 0; i < speed_count; i++){
-		prob = CellTransProbability(state, pos, i);
-		probs.push_back(prob);
-		normalizer += prob;
-	}
-	for (int i = 0; i < speed_count; i++){
-		sum += probs[i]/normalizer;
-		if (rand_num < sum){
-			return i;
-		}
-	}
-
-    assert(0);
-    return -1;
-}
-
 
 /* ======
  * Action
  * ======*/
 
 int LaneModel::NumActions() const {
-	return SPEED_COUNT;
+	return 4;
 }
+
 
 /* ==============================
  * Deterministic simulative model
@@ -113,134 +83,173 @@ int LaneModel::NumActions() const {
 bool LaneModel::Step(State& state, double rand_num, int action,	double& reward, OBS_TYPE& obs) const {
 	
 	LaneState& lane_state = static_cast<LaneState&>(state);
-	vector< vector<int> >& cells = lane_state.cells;
+	vector< CarPos >& cars = lane_state.cars;
 	Random random(rand_num);
 
-	int new_c, speed, new_speed;
 	bool terminate = false;
-
-	//evolve state, from top
-	for (int c = cell_count-1; c >= 0; c--){
-		for (int l = 0; l < lane_count; l++){
-			if ((speed = cells[l][c]) > 0) {
-				cells[l][c] = 0;
-
-				// stochastic change of speed
-				rand_num = random.NextDouble();
-				if (rand_num < SPEED_SAME)
-					new_speed = speed;
-				else if(speed == 1 || (speed < speed_count-1 && rand_num < SPEED_SAME + SPEED_CHANGE/2))
-					new_speed = speed + 1;
-				else
-					new_speed = speed -1;
-
-				// determine the new position of this car
-				new_c = c + new_speed;
-
-				// skip if out of field
-				if (new_c > cell_count -1)
-					continue;
-
-				// avoid cars overlapping
-				while (cells[l][new_c] > 0){
-					new_c--;
-					new_speed--;
-				}
-				assert(new_speed>0);
-
-				cells[l][new_c] = new_speed;
-			}
-		}
-	}
 
 	// move robot
     // TODO probably not good to allow lane switch action if at 0 lane
 	// should disable invalid actions
 	if (action == A_SWITCH) {
-        lane_state.pos.l = (lane_state.pos.l == 0 ? 0 : lane_state.pos.l-1);
+        lane_state.lane--;
+        // shift all cars
+        for (int i = 0; i < car_count; i++){
+        	if (cars[i].lane < lane_count -1)
+        		cars[i].lane++;
+        	else {
+        		cars[i] = PickRandomCarPos(random);
+        		cars[i].lane = 0;
+        	}
+        }
     } else if (action == A_ACC){
-    	if (lane_state.pos.s < speed_count - 1)
-    		lane_state.pos.s++;
+    	if (lane_state.speed < speed_count)
+    		lane_state.speed++;
     } else if (action == A_DEC){
-    	if (lane_state.pos.s > 1)
-    		lane_state.pos.s--;
-    }
-    lane_state.pos.c = lane_state.pos.c+lane_state.pos.s;
-
-    // compute reward
-    reward = -1;
-    if (cells[lane_state.pos.l][lane_state.pos.c] > 0){
-    	// collision
-    	reward = -500;
-    	terminate = true;
-    } else if (lane_state.pos.l == 0) {
-    	reward = 100;
-    	terminate = true;
-    } else if (lane_state.pos.l > 0 && lane_state.pos.c >= cell_count - 1) {
-    	reward = -100;
-    	terminate = true;
+    	if (lane_state.speed > 1)
+    		lane_state.speed--;
     }
 
-    // get observation
-    obs = lane_state;  //deep copy?
+	int decision;
+	//evolve car positions
+	for (int i = 0; i < car_count; i++){
 
-	for (int c = cell_count-1; c >= 0; c--){
-		for (int l = 0; l < lane_count; l++){
-			if ((obs.cells[l][c]) > 0) {
-				// stochastic observation
-				rand_num = random.NextDouble();
-				if (rand_num > OBS_CORR)
-					if(obs.cells[l][c] == 1 && (obs.cells[l][c] < speed_count-1 || rand_num < OBS_CORR + OBS_WRONG/2))
-						obs.cells[l][c]++;
-					else
-						obs.cells[l][c]--;
+		if (cars[i].cell > 0){
+			// car is on field
+			rand_num = random.NextDouble();
+			decision = 0;
+			if (rand_num < SPEED_ACC)
+				if (cars[i].speed < speed_count)
+					decision = 1;
+			else if (rand_num < SPEED_ACC + SPEED_DEC)
+				if (cars[i].speed > 1)
+					decision = -1;
+
+			cars[i].speed = cars[i].speed + decision;
+			cars[i].cell = cars[i].cell + cars[i].speed - lane_state.speed;
+			//disable if out of range
+			if (cars[i].cell < 1 || cars[i].cell > cell_count-1){
+				cars[i].cell = 0;
+				cars[i].lane = 0;
+				cars[i].speed = 0;
+			}
+		} else {
+			// car is disabled
+			rand_num = random.NextDouble();
+			if (rand_num < P_ENABLE){
+				cars[i].speed = random.NextInt(1, speed_count);
+				if (cars[i].speed > lane_state.speed)
+					cars[i].cell = cell_offset - max_cell;
+				else
+					cars[i].cell = cell_offset + max_cell;
+				cars[i].lane = random.NextInt(0, 1);
 			}
 		}
 	}
 
+    // compute reward
+    reward = R_STEP;
+    if (lane_state.lane == 0){
+    	reward = R_SUCCESS;
+    	terminate = true;
+    }
+    // check if colliding with other car
+    for (int i = 0; i < car_count; i++){
+    	if (cars[i].lane == 1 && cars[i].cell == cell_offset){
+    		reward = R_COLLISION;
+    		terminate = true;
+    	}
+    }
+
+    // get observation
+    vector<CarPos> observation = cars;
+    for(int i=0; i<car_count; i++){
+    	rand_num = random.NextDouble();
+    	if (rand_num >= OBS_WRONG)
+    		continue;
+    	if ((rand_num < OBS_WRONG / 2 && observation[i].cell>1) || observation[i].cell == cell_count-1){
+    		observation[i].cell--;
+    	} else {
+    		observation[i].cell++;
+    	}
+    }
+
+    obs = EncodeObs(observation);
+
 	return terminate;
+}
+
+OBS_TYPE LaneModel::EncodeObs(vector<CarPos> observation) const{
+	OBS_TYPE raw = 0;
+	for (int i=0; i<car_count; i++){
+		raw |= (observation[i].lane == 1 ? 0b10000 : 0b00000);
+		raw |= observation[i].cell;
+		assert(observation[i].cell < 0b10000);
+		raw = raw << 5;
+	}
+	return raw;
+}
+
+
+vector<CarPos> LaneModel::DecodeObs(OBS_TYPE raw) const{
+	vector<CarPos> observation(car_count);
+
+	for (int i=car_count-1; i>=0; i--){
+		observation[i].speed = 0;
+		observation[i].cell = raw & 0b01111;
+		observation[i].lane = (raw & 0b10000 ? 1 : 0);
+		raw = raw >> 5;
+	}
+	return observation;
 }
 
 /* ================================================
  * Functions related to beliefs and starting states
  * ================================================*/
 
-double LaneModel::ObsProb(OBS_TYPE obs, const State& state,
-	int action) const {
-	/*if (action == A_CHECK) {
-		const LaneState& simple_state = static_cast<const LaneState&>(state);
-		int rover_position = simple_state.rover_position;
-		int rock_status = simple_state.rock_status;
+double LaneModel::ObsProb(OBS_TYPE obs, const State& state,	int action) const {
+	double prob = 1;
+	vector<CarPos> cars = static_cast<const LaneState&>(state).cars;
+	vector<CarPos> observation = DecodeObs(obs);
 
-		if (rover_position == 0) {
-			return obs == rock_status;
-		} else if (rover_position == 1) {
-			return (obs == rock_status) ? 0.8 : 0.2;
-		}
+	for (int i =0; i<car_count; i++){
+		if (cars[i].lane != observation[i].lane)
+			return 0;
+		if (cars[i].cell == observation[i].cell)
+			prob *= OBS_CORR;
+		else if (abs(cars[i].cell - observation[i].cell) == 1)
+			prob *= OBS_WRONG;
+		else
+			return 0;
 	}
-	*/
-	return obs == 1;
+
+	return prob;
 }
 
 State* LaneModel::CreateStartState(string type) const {
-	//return new LaneState(1, Random::RANDOM.NextInt(2));
-	return new LaneState();
+	vector<CarPos> cars(car_count);
+	for (int i=0; i<car_count; i++){
+		cars[i] = PickRandomCarPos(Random::RANDOM);
+	}
+
+	LaneState* startState = memory_pool_.Allocate();
+	startState->lane = starting_lane;
+	startState->speed = 2;
+	startState->cars = cars;
+
+	return startState;
 }
 
 Belief* LaneModel::InitialBelief(const State* start, string type) const {
 	if (type == "DEFAULT" || type == "PARTICLE") {
-		vector<State*> particles;
+		int N = 200;
+		vector<State*> particles(N);
 
-		LaneState* good_rock = static_cast<LaneState*>(Allocate(-1, 0.5));
-		/*good_rock->rover_position = 1;
-		good_rock->rock_status = 1;
-		particles.push_back(good_rock);
+		for (int i = 0; i < N; i++) {
+			particles[i] = CreateStartState();
+			particles[i]->weight = 1.0 / N;
+		}
 
-		LaneState* bad_rock = static_cast<LaneState*>(Allocate(-1, 0.5));
-		bad_rock->rover_position = 1;
-		bad_rock->rock_status = 0;
-		particles.push_back(bad_rock);
-		*/
 		return new ParticleBelief(particles, this);
 	} else {
 		cerr << "[LaneModel::InitialBelief] Unsupported belief type: " << type << endl;
@@ -253,10 +262,14 @@ Belief* LaneModel::InitialBelief(const State* start, string type) const {
  * ========================*/
 
 double LaneModel::GetMaxReward() const {
-	return 10;
+	return R_SUCCESS + starting_lane*R_STEP;
 }
 
-class LaneModelParticleUpperBound: public ParticleUpperBound {
+ValuedAction LaneModel::GetMinRewardAction() const {
+	return ValuedAction(A_SWITCH, R_COLLISION);
+}
+
+/*class LaneModelParticleUpperBound: public ParticleUpperBound {
 protected:
 	// upper_bounds_[pos][status]:
 	//   max possible reward when rover_position = pos, and rock_status = status.
@@ -296,10 +309,6 @@ ScenarioUpperBound* LaneModel::CreateScenarioUpperBound(string name,
 	return bound;
 }
 
-ValuedAction LaneModel::GetMinRewardAction() const {
-	return ValuedAction(2, 0);
-}
-
 class LaneModelEastPolicy: public Policy {
 public:
 	LaneModelEastPolicy(const DSPOMDP* model, ParticleLowerBound* bound) :
@@ -326,7 +335,7 @@ ScenarioLowerBound* LaneModel::CreateScenarioLowerBound(string name,
 	}
 	return bound;
 }
-
+*/
 /* =================
  * Memory management
  * =================*/
@@ -356,20 +365,53 @@ int LaneModel::NumActiveParticles() const {
 /* =======
  * Display
  * =======*/
+void LaneModel::PrintCars(const vector<CarPos>& cars, ostream& out, int myspeed) const {
+	vector< vector<int> > lanes(lane_count);
+	for (int i =0; i<lane_count; i++){
+		lanes[i].resize(cell_count);
+		for (int j=1; j<cell_count; j++)
+			lanes[i][j] = -1;
+	}
+
+	for (int i = 0; i < car_count; i++){
+		if(cars[i].cell == 0) lanes[cars[i].lane][0]++;
+		else lanes[cars[i].lane][cars[i].cell] = cars[i].speed;
+	}
+
+	out << "ME  " << "(" << lanes[0][0] << ")" << lanes[1][0];
+	for (int i = 1+2; i < cell_offset; i++)
+		out << "  ";
+	out << " " << myspeed << endl;
+
+	for (int j = lane_count-1; j >= 0; j--){
+		out << "LANE";
+		for (int i = 1; i < cell_count; i++){
+			out << ((lanes[j][i] > -1) ? "|"+to_string(lanes[j][i]) : "| ");
+		}
+		out << "|" << endl;
+	}
+
+
+}
 
 void LaneModel::PrintState(const State& state, ostream& out) const {
-	const LaneState& simple_state = static_cast<const LaneState&>(state);
+	const LaneState& lane_state = static_cast<const LaneState&>(state);
 
-	out << "Rover = " << simple_state.pos[0] << " " << simple_state.pos[1];
+	out << "Lane " << lane_state.lane << " Speed " << lane_state.speed << endl;
+	PrintCars(lane_state.cars, out, lane_state.speed);
 }
 
 void LaneModel::PrintObs(const State& state, OBS_TYPE observation,
 	ostream& out) const {
-	out << (observation ? "GOOD" : "BAD") << endl;
+	const LaneState& lane_state = static_cast<const LaneState&>(state);
+	vector<CarPos> obscars = DecodeObs(observation);
+
+	out << endl;
+	PrintCars(obscars, out, lane_state.speed);
 }
 
 void LaneModel::PrintBelief(const Belief& belief, ostream& out) const {
-	const vector<State*>& particles =
+	/*const vector<State*>& particles =
 		static_cast<const ParticleBelief&>(belief).particles();
 
 	double rock_status = 0;
@@ -384,13 +426,19 @@ void LaneModel::PrintBelief(const Belief& belief, ostream& out) const {
 	out << "Rock belief: " << rock_status << endl;
 
 	out << "Position belief:" << " LEFT" << ":" << pos_probs[0] << " MIDDLE"
-		<< ":" << pos_probs[1] << " RIGHT" << ":" << pos_probs[2] << endl;
+		<< ":" << pos_probs[1] << " RIGHT" << ":" << pos_probs[2] << endl;*/
+	out << "Printing Belief" << endl;
 }
 
 void LaneModel::PrintAction(int action, ostream& out) const {
-	if (action == 0)
+	if (action == A_SWITCH)
 		out << "Switch" << endl;
+	else if (action == A_KEEP)
+		out << "Keep" << endl;
+	else if (action == A_ACC)
+		out << "Accelerate" << endl;
+	else if (action == A_DEC)
+		out << "Decelerate" << endl;
 	else
-		out << "Go " << action << endl;
-
+		assert(false);
 }

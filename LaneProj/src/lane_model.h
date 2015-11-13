@@ -12,6 +12,27 @@
 #define LANE_COUNT 2    // starting in largest lane, want to reach lane 0
 #define CELL_COUNT 30
 
+
+typedef struct {int lane; int cell; int speed;} CarPos;
+
+/* =============================================================================
+ * LaneState class
+ * =============================================================================*/
+
+class LaneState: public State {
+public:
+	vector< CarPos > cars; // index by lane/cell
+	int speed;
+	int lane;
+
+	LaneState();
+	LaneState(vector< CarPos > _cars, int _speed, int _lane);
+	~LaneState();
+
+	string text() const;
+};
+
+
 /* =============================================================================
  * LaneModel class
  * =============================================================================*/
@@ -25,21 +46,27 @@ protected:
 	mutable vector<ValuedAction> mdp_policy_;
 
 public:
-	int lane_count, cell_count, speed_count;
+	int lane_count, cell_count, cell_offset, max_cell, speed_count, car_count, starting_lane;
 
 	enum { // action
-		A_SWITCH = 0, A_SAME = 1, A_DEC = 2, A_ACC = 3
+		A_SWITCH = 0, A_KEEP = 1, A_DEC = 2, A_ACC = 3
 	};
 
 public:
 	LaneModel();
 
     /* Cell level functions */
-    double CellObsProbability(const LaneState& state, int *pos, int speed_obs);
+    /*double CellObsProbability(const LaneState& state, int *pos, int speed_obs);
     double CellTransProbability(const LaneState& state, int *pos, int speed_new);
     
     int SampleCellObs(const LaneState& state, int *pos, double rand_num);
-    int SampleCellVal(const LaneState& state, int *pos, double rand_num);
+    int SampleCellVal(const LaneState& state, int *pos, double rand_num);*/
+
+	CarPos PickRandomCarPos(Random random) const;
+	OBS_TYPE EncodeObs(vector<CarPos> observation) const;
+	vector<CarPos> DecodeObs(OBS_TYPE observation) const;
+
+	vector< vector<int> > ObserveState(State& state, Random random);
     
 	/* Returns total number of actions.*/
 	virtual int NumActions() const;
@@ -55,11 +82,14 @@ public:
 
 	/* Bound-related functions.*/
 	double GetMaxReward() const;
+	ValuedAction GetMinRewardAction() const;
+
+	/*
 	ScenarioUpperBound* CreateScenarioUpperBound(string name = "DEFAULT",
 		string particle_bound_name = "DEFAULT") const;
-	ValuedAction GetMinRewardAction() const;
 	ScenarioLowerBound* CreateScenarioLowerBound(string name = "DEFAULT",
 		string particle_bound_name = "DEFAULT") const;
+	*/
 
 	/* Memory management.*/
 	State* Allocate(int state_id, double weight) const;
@@ -68,6 +98,7 @@ public:
 	int NumActiveParticles() const;
 
 	/* Display.*/
+	void PrintCars(const vector<CarPos>& cars, ostream& out = cout, int myspeed = 0) const;
 	void PrintState(const State& state, ostream& out = cout) const;
 	void PrintBelief(const Belief& belief, ostream& out = cout) const;
 	void PrintObs(const State& state, OBS_TYPE observation,
