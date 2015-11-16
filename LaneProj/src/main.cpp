@@ -8,12 +8,14 @@ public:
 
   DSPOMDP* InitializeModel(option::Option* options) {
     DSPOMDP* model = new LaneModel();
+    ((LaneModel*)model)->UnitTest();
     return model;
   }
 
   void InitializeDefaultParameters() {
-	  Globals::config.pruning_constant = 0.0001;
+	  //Globals::config.pruning_constant = 0.0001;
 	  Globals::config.time_per_move = 5;
+	  Globals::config.num_scenarios = 5000;
   }
 };
 

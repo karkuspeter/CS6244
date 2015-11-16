@@ -21,7 +21,8 @@ typedef struct {int lane; int cell; int speed;} CarPos;
 
 class LaneState: public State {
 public:
-	vector< CarPos > cars; // index by lane/cell
+	//vector< CarPos > cars; // index by lane/cell
+	CarPos cars[4];
 	int speed;
 	int lane;
 
@@ -30,6 +31,24 @@ public:
 	~LaneState();
 
 	string text() const;
+};
+
+class LaneModel;
+
+class LaneBelief: public Belief {
+protected:
+	const LaneModel* lanemodel_;
+public:
+	vector<ParticleBelief* > car_beliefs;
+
+	LaneBelief(vector< vector<State*> > particles, const DSPOMDP* model, Belief* prior, bool split);
+	LaneBelief(vector<ParticleBelief* > car_beliefs_, const LaneModel* lanemod);
+	void Update(int action, OBS_TYPE obs);
+
+	virtual ~LaneBelief();
+	virtual vector<State*> Sample(int num) const;
+	virtual Belief* MakeCopy() const;
+	virtual string text() const;
 };
 
 
@@ -54,6 +73,7 @@ public:
 
 public:
 	LaneModel();
+	//~LaneModel();
 
     /* Cell level functions */
     /*double CellObsProbability(const LaneState& state, int *pos, int speed_obs);
@@ -62,7 +82,7 @@ public:
     int SampleCellObs(const LaneState& state, int *pos, double rand_num);
     int SampleCellVal(const LaneState& state, int *pos, double rand_num);*/
 
-	CarPos PickRandomCarPos(Random random) const;
+	CarPos PickRandomCarPos(Random &random) const;
 	OBS_TYPE EncodeObs(vector<CarPos> observation) const;
 	vector<CarPos> DecodeObs(OBS_TYPE observation) const;
 
@@ -77,7 +97,7 @@ public:
 
 	/* Functions related to beliefs and starting states.*/
 	virtual double ObsProb(OBS_TYPE obs, const State& state, int action) const;
-	State* RandomState() const;
+	State* RandomState(const LaneState* start) const;
 	State* CreateStartState(string type = "DEFAULT") const;
 	Belief* InitialBelief(const State* start, string type = "DEFAULT") const;
 
@@ -99,12 +119,18 @@ public:
 	int NumActiveParticles() const;
 
 	/* Display.*/
-	void PrintCars(const vector<CarPos>& cars, ostream& out = cout, int myspeed = 0) const;
+	void PrintCars(const CarPos cars[4], ostream& out = cout, int myspeed = 0) const;
 	void PrintState(const State& state, ostream& out = cout) const;
 	void PrintBelief(const Belief& belief, ostream& out = cout) const;
 	void PrintObs(const State& state, OBS_TYPE observation,
 		ostream& out = cout) const;
 	void PrintAction(int action, ostream& out = cout) const;
+
+	void UnitTest();
+
+	inline virtual DSPOMDP* MakeCopy() const {
+		return new LaneModel();
+	}
 };
 
 #endif
