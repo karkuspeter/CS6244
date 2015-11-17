@@ -214,7 +214,7 @@ void DESPOT::InitBounds(VNode* vnode, ScenarioLowerBound* lower_bound,
 }
 
 ValuedAction DESPOT::Search() {
-	if (logging::level() >= logging::DEBUG) {
+	if (logging::level() >= logging::INFO) {
 		model_->PrintBelief(*belief_);
 	}
 
