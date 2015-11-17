@@ -108,10 +108,11 @@ LaneState::LaneState() {
 
 LaneState::LaneState(vector< CarPos > _cars, int _speed, int _lane){
     // Pos of our car and whole world
-    //cars.resize(4);
+    /*cars.resize(4);
     for (int i=0; i<_cars.size(); i++){
     	cars[i] = _cars[i];
-    }
+    }*/
+	cars = _cars;
     speed = _speed;
     lane = _lane;
 }
@@ -133,13 +134,13 @@ string LaneState::text() const {
 LaneModel::LaneModel() {
 	//memory_pool_ = *(new MemoryPool<LaneState>());
 
-    lane_count = 2;
+    lane_count = 3;
     cell_count = 16;
     cell_offset = 8;
-    max_cell = 7;
+    max_cell = cell_count-cell_offset-1;
 
-    speed_count = 3;
-    car_count = 4;
+    speed_count = 4;
+    car_count = 10;
 
     starting_lane = 5;
 }
@@ -204,6 +205,8 @@ bool LaneModel::Step(State& state, double rand_num, int action,	double& reward, 
     }
 
 	int decision;
+	vector<CarPos> cars_prev = lane_state.cars;
+
 	//evolve car positions
 	for (int i = 0; i < car_count; i++){
 
@@ -260,9 +263,14 @@ bool LaneModel::Step(State& state, double rand_num, int action,	double& reward, 
     // check if colliding with other car
     // TODO this allows to jump over a speed 1 car with speed 3
     for (int i = 0; i < car_count; i++){
-    	if (lane_state.cars[i].lane == lane_count-1 && lane_state.cars[i].cell == cell_offset){
-    		reward = R_COLLISION;
-    		terminate = true;
+    	if (lane_state.cars[i].lane == lane_count-1){
+    		if (lane_state.cars[i].cell == cell_offset ||
+    				(lane_state.cars[i].cell <= cell_offset && cars_prev[i].cell > cell_offset) ||
+					(lane_state.cars[i].cell >= cell_offset && cars_prev[i].cell < cell_offset) ){
+    			assert(lane_state.cars[i].cell != 0);
+    			reward = R_COLLISION;
+    			terminate = true;
+    		}
     	}
     }
 
@@ -379,7 +387,7 @@ State* LaneModel::RandomState(const LaneState* start) const {
 	vector<CarPos> cars(car_count);
 	for (int i=0; i<car_count; i++){
 		cars[i] = PickRandomCarPos(Random::RANDOM);
-		if(cars[i].lane == 1){
+		if(cars[i].lane ==  lane_count-1){
 			if(cars[i].cell == cell_offset ||
 					(cell_offset > cars[i].cell && cell_offset-cars[i].cell < cars[i].speed -start->speed) ||
 					(cell_offset < cars[i].cell && cars[i].cell-cell_offset < start->speed - cars[i].speed)){
@@ -391,9 +399,10 @@ State* LaneModel::RandomState(const LaneState* start) const {
 	LaneState* startState = memory_pool_.Allocate();
 	startState->lane = start->lane;
 	startState->speed = start->speed;
-	for (int i=0; i<car_count; i++){
+	startState->cars = cars;
+	/*for (int i=0; i<car_count; i++){
 		startState->cars[i] = cars[i];
-	}
+	}*/
 
 	return startState;
 }
@@ -527,7 +536,7 @@ int LaneModel::NumActiveParticles() const {
 /* =======
  * Display
  * =======*/
-void LaneModel::PrintCars(const CarPos cars[4], ostream& out, int myspeed) const {
+void LaneModel::PrintCars(const vector< CarPos > cars, ostream& out, int myspeed) const {
 	vector< vector<int> > lanes(lane_count);
 	for (int i =0; i<lane_count; i++){
 		lanes[i].resize(cell_count);
@@ -568,13 +577,13 @@ void LaneModel::PrintObs(const State& state, OBS_TYPE observation,
 
 	const LaneState& lane_state = static_cast<const LaneState&>(state);
 	vector<CarPos> obscars = DecodeObs(observation);
-	CarPos cars[4];
+	/*CarPos cars[4];
 	for (int i=0; i<car_count; i++){
 		cars[i] = obscars[i];
-	}
+	}*/
 
 	out << endl;
-	PrintCars(cars, out, lane_state.speed);
+	PrintCars(obscars, out, lane_state.speed);
 }
 
 void LaneModel::CollectBelief(vector<double> &speed_prob, vector<double> &lane_prob, vector< vector< vector<double> > > &probs) const{

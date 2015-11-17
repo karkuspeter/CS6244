@@ -21,8 +21,8 @@ typedef struct {int lane; int cell; int speed;} CarPos;
 
 class LaneState: public State {
 public:
-	//vector< CarPos > cars; // index by lane/cell
-	CarPos cars[4];
+	vector< CarPos > cars; // index by lane/cell
+	//CarPos cars[4];
 	int speed;
 	int lane;
 
@@ -119,7 +119,7 @@ public:
 	int NumActiveParticles() const;
 
 	/* Display.*/
-	void PrintCars(const CarPos cars[4], ostream& out = cout, int myspeed = 0) const;
+	void PrintCars(const vector< CarPos > cars, ostream& out = cout, int myspeed = 0) const;
 	void PrintState(const State& state, ostream& out = cout) const;
 	void PrintBelief(const Belief& belief, ostream& out = cout) const;
 	void CollectBelief(vector<double> &speed_prob, vector<double> &lane_prob, vector< vector< vector<double> > > &probs) const;
