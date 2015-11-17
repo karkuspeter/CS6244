@@ -9,7 +9,7 @@ DEPDIR = .deps
 
 INCL = -I $(INCDIR) -I $(SRCDIR)
 CXX = g++
-CXXFLAGS = -O3 -c -Wall -Wno-sign-compare -fpic $(INCL) $(GPROF)
+CXXFLAGS = -c -Wall -Wno-sign-compare -fpic  -g -O0 -Wextra $(INCL) $(GPROF)
 #LDFLAGS = -O3 -Wno-sign-compare -shared
 LDFLAGS = -O3 -Wno-sign-compare -dynamiclib $(GPROF)
 
