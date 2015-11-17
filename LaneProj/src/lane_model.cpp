@@ -7,9 +7,8 @@
 #define SPEED_ACC 0.1
 #define SPEED_DEC 0.1
 
-#define P_ENABLE 0 //0.3
-
-#define P_DISABLE 0 // 0.2
+#define P_ENABLE 0.3
+#define P_DISABLE 0.2
 
 #define R_COLLISION -500
 #define R_STEP -1
@@ -73,6 +72,7 @@ vector<State*> LaneBelief::Sample(int num) const {
 			((LaneState*)joint_samples[i])->cars[j] = (((LaneState*)car_samples[j][i])->cars[0]);
 			assert(((LaneState*)car_samples[j][i])->speed == ((LaneState*)car_samples[0][i])->speed);
 			assert(((LaneState*)car_samples[j][i])->lane == ((LaneState*)car_samples[0][i])->lane);
+			assert((car_samples[j].size()) == car_samples[0].size());
 		}
 	}
 
@@ -139,7 +139,7 @@ LaneModel::LaneModel() {
     max_cell = 7;
 
     speed_count = 3;
-    car_count = 2;
+    car_count = 4;
 
     starting_lane = 5;
 }
@@ -221,7 +221,7 @@ bool LaneModel::Step(State& state, double rand_num, int action,	double& reward, 
 			}
 
 			//cars try to avoid collision with us, when not switching lanes
-			if (lane_state.cars[i].lane == 1 && action != A_SWITCH)
+			if (lane_state.cars[i].lane == lane_count-1 && action != A_SWITCH)
 				if ( (lane_state.cars[i].cell == cell_offset-1)
 						|| (lane_state.cars[i].cell == cell_offset-2 && lane_state.cars[i].speed > 1)
 						|| (lane_state.cars[i].cell == cell_offset-3 && lane_state.cars[i].speed > 2))
@@ -246,7 +246,7 @@ bool LaneModel::Step(State& state, double rand_num, int action,	double& reward, 
 					lane_state.cars[i].cell = cell_offset - max_cell;
 				else
 					lane_state.cars[i].cell = cell_offset + max_cell;
-				lane_state.cars[i].lane = random.NextInt(0, 2);
+				lane_state.cars[i].lane = random.NextInt(0, lane_count);
 			}
 		}
 	}
@@ -260,7 +260,7 @@ bool LaneModel::Step(State& state, double rand_num, int action,	double& reward, 
     // check if colliding with other car
     // TODO this allows to jump over a speed 1 car with speed 3
     for (int i = 0; i < car_count; i++){
-    	if (lane_state.cars[i].lane == 1 && lane_state.cars[i].cell == cell_offset){
+    	if (lane_state.cars[i].lane == lane_count-1 && lane_state.cars[i].cell == cell_offset){
     		reward = R_COLLISION;
     		terminate = true;
     	}
@@ -288,11 +288,13 @@ bool LaneModel::Step(State& state, double rand_num, int action,	double& reward, 
 
 OBS_TYPE LaneModel::EncodeObs(vector<CarPos> observation) const{
 	OBS_TYPE raw = 0;
+	int lane_bits = ceil(log2(lane_count));
+	int cell_bits = ceil(log2(cell_count));
+
 	for (int i=0; i<car_count; i++){
-		raw = raw << 5;
-		raw |= (observation[i].lane == 1 ? 0b10000 : 0b00000);
+		raw = raw << (lane_bits + cell_bits);
+		raw |= (observation[i].lane << cell_bits);
 		raw |= observation[i].cell;
-		assert(observation[i].cell < 0b10000);
 	}
 	return raw;
 }
@@ -300,12 +302,14 @@ OBS_TYPE LaneModel::EncodeObs(vector<CarPos> observation) const{
 
 vector<CarPos> LaneModel::DecodeObs(OBS_TYPE raw) const{
 	vector<CarPos> observation(car_count);
+	int lane_bits = ceil(log2(lane_count));
+	int cell_bits = ceil(log2(cell_count));
 
 	for (int i=car_count-1; i>=0; i--){
 		observation[i].speed = 0;
-		observation[i].cell = raw & 0b01111;
-		observation[i].lane = (raw & 0b10000 ? 1 : 0);
-		raw = raw >> 5;
+		observation[i].cell = raw & ((int)pow(2,cell_bits)-1);
+		observation[i].lane = (raw >> cell_bits) & ((int)pow(2,lane_bits)-1);
+		raw = raw >> (cell_bits + lane_bits);
 	}
 	return observation;
 }
@@ -341,18 +345,20 @@ double LaneModel::ObsProb(OBS_TYPE obs, const State& state,	int action) const {
 }
 
 State* LaneModel::CreateStartState(string type) const {
-	vector<CarPos> init_cars(4), cars(car_count);
+	vector<CarPos> init_cars(6), cars(car_count);
 
 	init_cars[0] = {0, 8, 2};
 	init_cars[1] = {1, 3, 2};
 	init_cars[2] = {0, 0, 0};
 	init_cars[3] = {0, 0, 0};
+	init_cars[4] = {0, 0, 0};
+	init_cars[5] = {0, 0, 0};
 	for (int i=0; i<car_count; i++)
 		cars[0] = init_cars[0];
 
 	LaneState startState(cars, 2, starting_lane);
 
-	if (type == "T1" || type == "DEFAULT"){
+	if (type == "T1"){
 		LaneState* startStatePtr = memory_pool_.Allocate();
 		startStatePtr->lane = startState.lane;
 		startStatePtr->speed = startState.speed;
@@ -361,7 +367,7 @@ State* LaneModel::CreateStartState(string type) const {
 		}
 		return startStatePtr;
 
-	} else if (type == "RANDOM"){
+	} else if (type == "RANDOM" || type == "DEFAULT"){
 		return RandomState(&startState);
 	} else {
 		cerr << "[LaneModel::CreateStartState] Unsupported start state type: " << type << endl;
@@ -373,6 +379,13 @@ State* LaneModel::RandomState(const LaneState* start) const {
 	vector<CarPos> cars(car_count);
 	for (int i=0; i<car_count; i++){
 		cars[i] = PickRandomCarPos(Random::RANDOM);
+		if(cars[i].lane == 1){
+			if(cars[i].cell == cell_offset ||
+					(cell_offset > cars[i].cell && cell_offset-cars[i].cell < cars[i].speed -start->speed) ||
+					(cell_offset < cars[i].cell && cars[i].cell-cell_offset < start->speed - cars[i].speed)){
+				i--;
+			}
+		}
 	}
 
 	LaneState* startState = memory_pool_.Allocate();
@@ -564,14 +577,21 @@ void LaneModel::PrintObs(const State& state, OBS_TYPE observation,
 	PrintCars(cars, out, lane_state.speed);
 }
 
+void LaneModel::CollectBelief(vector<double> &speed_prob, vector<double> &lane_prob, vector< vector< vector<double> > > &probs) const{
+
+}
+
 void LaneModel::PrintBelief(const Belief& belief, ostream& out) const {
+	/*
 	if (car_count != 1){
-		out << "Joint belief, cant print" << endl;
+		//out << "Joint belief, cant print" << endl;
+		const LaneBelief& lanebelief = static_cast<const LaneBelief&>(belief);
+		for (int i=0; i<car_count; i++){
+			lanebelief.car_beliefs[i]->model_->PrintBelief(*(lanebelief.car_beliefs[i]), out);
+		}
 		return;
 	}
-	const vector<State*>& particles =
-		static_cast<const ParticleBelief&>(belief).particles();
-
+	*/
 	vector<double> speed_prob(speed_count+1);
 	vector<double> lane_prob(starting_lane+1);
 
@@ -583,26 +603,44 @@ void LaneModel::PrintBelief(const Belief& belief, ostream& out) const {
 		}
 	}
 
-	for (int i = 0; i < particles.size(); i++) {
-		State* particle = particles[i];
-		const LaneState* state = static_cast<const LaneState*>(particle);
+	int particles_sum = 0;
+	if (car_count == 1){
+		const vector<State*>& particles =
+			static_cast<const ParticleBelief&>(belief).particles();
 
-		speed_prob[state->speed] += particle->weight;
-		lane_prob[state->lane] += particle->weight;
+		for (int i = 0; i < particles.size(); i++) {
+			State* particle = particles[i];
+			const LaneState* state = static_cast<const LaneState*>(particle);
+
+			speed_prob[state->speed] += particle->weight;
+			lane_prob[state->lane] += particle->weight;
+			for (int j=0; j<car_count; j++){
+				probs[state->cars[j].lane][state->cars[j].cell][state->cars[j].speed] += particle->weight;
+			}
+		}
+	} else {
 		for (int j=0; j<car_count; j++){
-			probs[state->cars[j].lane][state->cars[j].cell][state->cars[j].speed] += particle->weight;
+			const vector<State*>& particles =
+				static_cast<const LaneBelief&>(belief).car_beliefs[j]->particles();
+
+			for (int i = 0; i < particles.size(); i++) {
+				State* particle = particles[i];
+				const LaneState* state = static_cast<const LaneState*>(particle);
+
+				speed_prob[state->speed] += particle->weight;
+				lane_prob[state->lane] += particle->weight;
+				probs[state->cars[0].lane][state->cars[0].cell][state->cars[0].speed] += particle->weight;
+			}
 		}
 	}
 
 	out << "Lane  ";
 	for (int i =0; i<starting_lane+1; i++)
 		out << lane_prob[i] << " ";
-	out << endl;
-
 	out << "Speed ";
 	for (int i =0; i<speed_count+1; i++)
 		out << speed_prob[i] << " ";
-	out << endl;
+	out << "Particles " << particles_sum << endl;
 
 	char s[5];
 	double all_sum = 0;
@@ -626,7 +664,7 @@ void LaneModel::PrintBelief(const Belief& belief, ostream& out) const {
 			sprintf(s, "%.3f", cummulated[j]);
 			out << "|" << s;
 		}
-		out << "|" << endl << endl;
+		out << "|" << endl;
 
 	}
 

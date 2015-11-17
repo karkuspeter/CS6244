@@ -122,6 +122,7 @@ public:
 	void PrintCars(const CarPos cars[4], ostream& out = cout, int myspeed = 0) const;
 	void PrintState(const State& state, ostream& out = cout) const;
 	void PrintBelief(const Belief& belief, ostream& out = cout) const;
+	void CollectBelief(vector<double> &speed_prob, vector<double> &lane_prob, vector< vector< vector<double> > > &probs) const;
 	void PrintObs(const State& state, OBS_TYPE observation,
 		ostream& out = cout) const;
 	void PrintAction(int action, ostream& out = cout) const;

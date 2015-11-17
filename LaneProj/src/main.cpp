@@ -14,8 +14,8 @@ public:
 
   void InitializeDefaultParameters() {
 	  //Globals::config.pruning_constant = 0.0001;
-	  Globals::config.time_per_move = 5;
-	  Globals::config.num_scenarios = 5000;
+	  Globals::config.time_per_move = 2;
+	  Globals::config.num_scenarios = 500;
   }
 };
 
