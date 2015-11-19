@@ -198,6 +198,7 @@ void SimpleTUI::RunEvaluator(DSPOMDP *model, Evaluator *simulator,
                              int start_run) {
   // Run num_runs simulations
   vector<double> round_rewards(num_runs);
+  int all_steps = 0;
   for (int round = start_run; round < start_run + num_runs; round++) {
     default_out << endl
                 << "####################################### Round " << round
@@ -256,11 +257,15 @@ void SimpleTUI::RunEvaluator(DSPOMDP *model, Evaluator *simulator,
            << endl;
     //  default_out << endl;
     }
-
     default_out << "Simulation terminated in " << simulator->step() << " steps"
                 << endl;
+    all_steps += simulator->step();
     double round_reward = simulator->EndRound();
     round_rewards[round] = round_reward;
+    if (round_reward < -400){
+  	  logi << "crashed" << endl;
+    }
+
   }
 
   if (simulator_type == "ippc" && num_runs != 30) {
@@ -270,6 +275,8 @@ void SimpleTUI::RunEvaluator(DSPOMDP *model, Evaluator *simulator,
          << (double(clock() - main_clock_start) / CLOCKS_PER_SEC) << "s"
          << endl;
     exit(0);
+
+    cout << "All steps " << all_steps << endl;
   }
 }
 
@@ -283,6 +290,17 @@ void SimpleTUI::PrintResult(int num_runs, Evaluator *simulator,
   cout << "Average total undiscounted reward (stderr) = "
        << simulator->AverageUndiscountedRoundReward() << " ("
        << simulator->StderrUndiscountedRoundReward() << ")" << endl;
+  double min_rew = 99999999;
+  int min_count = 0;
+  for (int i=0; i<simulator->rewards().size(); i++){
+	  min_rew = min(simulator->rewards()[i], min_rew);
+  }
+  for (int i=0; i<simulator->rewards().size(); i++){
+	  if (simulator->rewards()[i] < min_rew+100)
+		  min_count++;
+  }
+  cout << "Minimum reward (" << min_rew << ") received (<" << min_rew+100 << ") " << min_count << endl;
+  cout << "Random root seed = " << Globals::config.root_seed << endl;
   cout << "Total time: Real / CPU = "
        << (get_time_second() - EvalLog::curr_inst_start_time) << " / "
        << (double(clock() - main_clock_start) / CLOCKS_PER_SEC) << "s" << endl;

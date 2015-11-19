@@ -134,15 +134,15 @@ string LaneState::text() const {
 LaneModel::LaneModel() {
 	//memory_pool_ = *(new MemoryPool<LaneState>());
 
-    lane_count = 3;
+    lane_count = 2;
     cell_count = 16;
     cell_offset = 8;
     max_cell = cell_count-cell_offset-1;
 
-    speed_count = 4;
-    car_count = 10;
+    speed_count = 3;
+    car_count = 5;
 
-    starting_lane = 5;
+    starting_lane = 6;
 }
 
 CarPos LaneModel::PickRandomCarPos(Random &random) const{
@@ -264,9 +264,9 @@ bool LaneModel::Step(State& state, double rand_num, int action,	double& reward, 
     // TODO this allows to jump over a speed 1 car with speed 3
     for (int i = 0; i < car_count; i++){
     	if (lane_state.cars[i].lane == lane_count-1){
-    		if (lane_state.cars[i].cell == cell_offset ||
+    		if (lane_state.cars[i].cell == cell_offset || (cars_prev[i].cell != 0 && (
     				(lane_state.cars[i].cell <= cell_offset && cars_prev[i].cell > cell_offset) ||
-					(lane_state.cars[i].cell >= cell_offset && cars_prev[i].cell < cell_offset) ){
+					(lane_state.cars[i].cell >= cell_offset && cars_prev[i].cell < cell_offset))) ){
     			assert(lane_state.cars[i].cell != 0);
     			reward = R_COLLISION;
     			terminate = true;
@@ -389,8 +389,8 @@ State* LaneModel::RandomState(const LaneState* start) const {
 		cars[i] = PickRandomCarPos(Random::RANDOM);
 		if(cars[i].lane ==  lane_count-1){
 			if(cars[i].cell == cell_offset ||
-					(cell_offset > cars[i].cell && cell_offset-cars[i].cell < cars[i].speed -start->speed) ||
-					(cell_offset < cars[i].cell && cars[i].cell-cell_offset < start->speed - cars[i].speed)){
+					(cell_offset > cars[i].cell && cell_offset-cars[i].cell < cars[i].speed -start->speed + 1) ||
+					(cell_offset < cars[i].cell && cars[i].cell-cell_offset < start->speed - cars[i].speed - 1)){
 				i--;
 			}
 		}
@@ -441,7 +441,7 @@ double LaneModel::GetMaxReward() const {
 }
 
 ValuedAction LaneModel::GetMinRewardAction() const {
-	return ValuedAction(A_DEC, R_STEP);
+	return ValuedAction(A_KEEP, R_COLLISION);
 }
 
 class LaneModelParticleUpperBound: public ParticleUpperBound {
