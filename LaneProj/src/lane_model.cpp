@@ -568,6 +568,17 @@ void LaneModel::PrintCars(const vector< CarPos > cars, ostream& out, int myspeed
 void LaneModel::PrintState(const State& state, ostream& out) const {
 	const LaneState& lane_state = static_cast<const LaneState&>(state);
 
+	ofstream outputfile;
+	outputfile.open("output.txt", ios_base::app);
+	outputfile << lane_state.lane << " " << lane_state.speed;
+	for (int i=0; i<car_count; i++){
+		outputfile << " " << lane_state.cars[i].cell;
+		outputfile << " " << lane_state.cars[i].lane;
+		outputfile << " " << lane_state.cars[i].speed;
+	}
+	outputfile << endl;
+	outputfile.close();
+
 	out << "Lane " << lane_state.lane << " Speed " << lane_state.speed << endl;
 	PrintCars(lane_state.cars, out, lane_state.speed);
 }
